@@ -47,6 +47,8 @@ class _Task(_Step, ABC):
         add_raw_output: whether to include a field with the raw output of the LLM in the
             `distilabel_metadata` field of the output. Can be helpful to not loose data
             with `Tasks` that need to format the output of the `LLM`. Defaults to `False`.
+        add_raw_input: whether to include a field with the raw output of the LLM in the
+            `distilabel_metadata` field of the output.
         num_generations: The number of generations to be produced per input.
     """
 
@@ -57,6 +59,13 @@ class _Task(_Step, ABC):
         default=True,
         description=(
             "Whether to include the raw output of the LLM in the key `raw_output_<TASK_NAME>`"
+            " of the `distilabel_metadata` dictionary output column"
+        ),
+    )
+    add_raw_input: RuntimeParameter[bool] = Field(
+        default=False,
+        description=(
+            "Whether to include the raw input to the LLM in the key `raw_input_<TASK_NAME>`"
             " of the `distilabel_metadata` dictionary output column"
         ),
     )
@@ -115,12 +124,18 @@ class _Task(_Step, ABC):
                     output,
                     add_raw_output=self.add_raw_output,  # type: ignore
                 )
-                formatted_outputs.append(formatted_output)
             except Exception as e:
                 self._logger.warning(  # type: ignore
                     f"Task '{self.name}' failed to format output: {e}. Saving raw response."  # type: ignore
                 )
-                formatted_outputs.append(self._output_on_failure(output, input))
+                formatted_output = self._output_on_failure(output, input)
+                
+            formatted_output = self._maybe_add_raw_input(
+                formatted_output,
+                input,
+                add_raw_input=self._maybe_add_raw_input,  # type: ignore
+            )
+            formatted_outputs.append(formatted_output)
         return formatted_outputs
 
     def _output_on_failure(
@@ -151,6 +166,19 @@ class _Task(_Step, ABC):
             meta[f"raw_output_{self.name}"] = raw_output
             output[DISTILABEL_METADATA_KEY] = meta
         return output
+
+    def _maybe_add_raw_input(
+        self,
+        input: Dict[str, Any],
+        raw_input: Union[str, None],
+        add_raw_input: bool = False,
+    ) -> Dict[str, Any]:
+        """Adds the raw input to the LLM to the output dictionary if `add_raw_input` is True."""
+        if add_raw_input:
+            meta = input.get(DISTILABEL_METADATA_KEY, {})
+            meta[f"raw_input_{self.name}"] = raw_input
+            input[DISTILABEL_METADATA_KEY] = meta
+        return input
 
 
 class Task(_Task, Step):
